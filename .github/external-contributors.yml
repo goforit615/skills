@@ -10,8 +10,13 @@
 # contributor here, and the authors check accepts their email for the
 # listed pull requests only.
 #
-# This file is always read from the target (base) branch by CI, so a
-# pull request cannot allowlist itself.
+# This file is always read from the tip of the target (base) branch by
+# CI, so a pull request cannot allowlist itself. After merging a new
+# entry, re-run the authors check on the contributor's PR to pick it up.
+#
+# This per-entry flow is a deliberate v1 while external contributions
+# are rare. If volume grows, revisit with a lower-toil mechanism (e.g.,
+# a maintainer-applied label) without weakening the review requirement.
 #
 # Entry fields:
 #   email        commit author/committer email to accept

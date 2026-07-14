@@ -18,8 +18,9 @@
 # .github/external-contributors.yml: a maintainer runs the contribution
 # review, records the contributor's email scoped to specific PR
 # numbers, and this check then accepts that email for those PRs only.
-# The allowlist is read from the BASE branch, never the PR head, so a
-# pull request cannot allowlist itself.
+# The allowlist is read from the tip of the BASE branch, never the PR
+# head, so a pull request cannot allowlist itself — and a re-run picks
+# up entries merged after the PR was opened.
 
 name: Verify Authors
 
@@ -43,6 +44,7 @@ jobs:
       - name: Verify all commit author emails are NVIDIA-affiliated
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -62,23 +64,36 @@ jobs:
           #                                   NVIDIA-org GitHub user)
           allowed='@(nvidia\.com|users\.noreply\.github\.com)$'
 
-          # Reviewed-external allowlist, read from the BASE branch so a
-          # PR cannot allowlist itself. Produces "email" lines for
-          # entries whose prs list contains this PR's number.
-          reviewed_externals=$(git show "$BASE_SHA:.github/external-contributors.yml" 2>/dev/null \
-            | python3 -c '
+          # The allowlist logic depends on the YAML parser. Fail loudly
+          # if it is unavailable — otherwise reviewed externals would be
+          # silently rejected with no clue why.
+          python3 -c 'import yaml'
+
+          # Reviewed-external allowlist, read from the TIP of the base
+          # branch so a PR cannot allowlist itself, and so a re-run
+          # picks up entries merged after the PR was opened. Produces
+          # "email" lines for entries whose prs list contains this PR's
+          # number. An unparsable allowlist fails the job loudly.
+          allowlist_ref="origin/$BASE_REF"
+          if git cat-file -e "$allowlist_ref:.github/external-contributors.yml" 2>/dev/null; then
+            reviewed_externals=$(git show "$allowlist_ref:.github/external-contributors.yml" \
+              | python3 -c '
           import os, sys, yaml
           try:
               doc = yaml.safe_load(sys.stdin) or {}
-          except yaml.YAMLError:
-              sys.exit(0)  # unparsable allowlist grants nothing
+          except yaml.YAMLError as exc:
+              print(f"::error::.github/external-contributors.yml on the base branch is unparsable: {exc}", file=sys.stderr)
+              sys.exit(1)
           pr = int(os.environ["PR_NUMBER"])
           for entry in doc.get("external_contributors") or []:
               email = str(entry.get("email", "")).strip().lower()
               prs = entry.get("prs") or []
               if email and isinstance(prs, list) and pr in prs:
                   print(email)
-          ' || true)
+          ')
+          else
+            reviewed_externals=""
+          fi
 
           is_reviewed_external() {
             local email_lc
